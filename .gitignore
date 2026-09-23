@@ -1,0 +1,45 @@
+# Swift Package Manager build products, caches, and local workspace state
+/.build/
+/.swiftpm/
+
+# Generated packages and local build output
+/dist/
+/build/
+/DerivedData/
+*.app/
+*.dSYM/
+*.dmg
+*.pkg
+*.zip
+
+# Xcode and editor settings specific to one developer
+xcuserdata/
+*.xcuserstate
+/.idea/
+/.vscode/
+*.swp
+*.swo
+*~
+
+# macOS Finder metadata and resource-fork sidecars
+.DS_Store
+.AppleDouble/
+.LSOverride
+._*
+
+# Local diagnostics and temporary files
+*.log
+*.tmp
+*.bak
+
+# Local environment and signing credentials
+.env
+.env.*
+!.env.example
+*.p12
+*.pfx
+*.mobileprovision
+*.provisionprofile
+
+# Keep source assets (including Resources/AppIcon.png and AppIcon.icns),
+# localized resources, scripts, tests, and documentation in version control.
