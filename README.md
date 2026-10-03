@@ -32,13 +32,13 @@ bash scripts/check.sh
 bash scripts/build.sh
 ```
 
-The build creates `dist/MasterKey.zip`. To build and install at the canonical application path, first quit any running MasterKey instance, then run:
+The build creates `dist/MasterKey.zip`. To build and install at the canonical application path, run:
 
 ```sh
 bash scripts/install.sh
 ```
 
-The installer uses `/Applications/MasterKey.app` and opens it when finished. Use `bash scripts/install.sh --no-open` to install without launching. Avoid keeping multiple runnable copies of the app.
+The installer quits any running MasterKey, moves other copies of the app to the Trash, removes stale Launch Services registrations, replaces `/Applications/MasterKey.app`, and opens it when finished. Use `--no-open` to install without launching. Add `--reset-permissions` to clear every MasterKey privacy entry, including stale ones from earlier builds, so a single fresh entry is created after you grant access again.
 
 The scripts use local ad hoc signing, without Developer ID signing or notarization. Rebuilding may require removing and re-adding MasterKey in macOS privacy permissions, then relaunching it. The build targets the current machine's architecture.
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Fix login-item detection so launches at login stay in the background instead of opening settings.
+- The installer now quits the running app, removes other copies and stale registrations, and can reset privacy permissions with `--reset-permissions`.
+
 ## 1.4 — Build 6
 
 - Add independent Dock and menu bar visibility settings, both disabled by default.

@@ -66,8 +66,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         // A normal launch opens settings even when both icons are hidden. Login
         // launches stay in the background, including after an application update.
-        let loginLaunch = NSAppleEventManager.shared().currentAppleEvent?.paramDescriptor(forKeyword: keyAELaunchedAsLogInItem) != nil
-        if !loginLaunch { showSettings() }
+        if !launchedAsLoginItem { showSettings() }
+    }
+
+    // macOS marks a login launch with the `keyAELaunchedAsLogInItem` value in the
+    // open-application event's `keyAEPropData` parameter, not as its own keyword.
+    private var launchedAsLoginItem: Bool {
+        guard let event = NSAppleEventManager.shared().currentAppleEvent,
+              event.eventClass == kCoreEventClass, event.eventID == kAEOpenApplication else { return false }
+        return event.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem
     }
 
     private func updatePresentation() {
