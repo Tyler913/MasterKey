@@ -4,6 +4,9 @@
 
 - Fix login-item detection so launches at login stay in the background instead of opening settings.
 - The installer now quits the running app, removes other copies and stale registrations, and can reset privacy permissions with `--reset-permissions`.
+- Support Logitech mice connected directly over Bluetooth. Options+ delivers diverted buttons through Logitech's Bluetooth GATT service, which MasterKey now also listens to. Bluetooth access is requested only when a Logitech Bluetooth mouse is connected.
+- Send long HID++ requests to interfaces that declare only long reports, query the direct device index on USB for cable-connected devices, and ignore HID++ error replies.
+- The HID++ probe skips Bluetooth instead of stopping when its terminal has no Bluetooth access.
 
 ## 1.4 — Build 6
 

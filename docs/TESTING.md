@@ -8,7 +8,7 @@ Run from the project root:
 bash scripts/check.sh
 ```
 
-This runs `BridgeChecks`, a standalone Swift executable that works with the Command Line Tools without XCTest. The 21 checks cover:
+This runs `BridgeChecks`, a standalone Swift executable that works with the Command Line Tools without XCTest. The 23 checks cover:
 
 - Physical shortcut capture, including left and right modifiers, common keys, and saved-setting compatibility.
 - System language selection, translation completeness, formatting arguments, and configuration stability across languages.
@@ -16,6 +16,7 @@ This runs `BridgeChecks`, a standalone Swift executable that works with the Comm
 - Duplicate HID reports, disconnect reset, relay matching, and loop prevention.
 - HID binding identity and configuration persistence.
 - Captured MX Master 4 HID++ button reports, malformed-report rejection, control filtering, simultaneous buttons, and receiver-slot isolation.
+- Bluetooth GATT framing with captured MX Master 4 button events, long-report selection, direct device index discovery, and HID++ error replies.
 
 These checks do not post keyboard events or activate Typeless. Build and verify the application bundle separately:
 
@@ -39,7 +40,7 @@ The debug renderer covers English, Simplified Chinese, and Traditional Chinese i
 
 Use a correctly permissioned installation and keep Logi Options+ running:
 
-1. Set the target button to **Other actions → Do nothing**, then record it in **Logitech · Direct** mode.
+1. Set the target button to **Other actions → Do nothing**, then record it in **Logitech · Direct** mode. Repeat with the mouse connected directly over Bluetooth, allowing Bluetooth access when asked.
 2. Verify that two clicks start and stop Typeless dictation with the matching shortcut. Check hold/release separately when using hold-to-talk.
 3. Record left and right modifier combinations with a physical keyboard. Confirm that Escape cancels without changing the saved shortcut.
 4. Test **Options+ · Relay**, including the delayed relay-key recording flow. Confirm one output press per click.
@@ -57,7 +58,7 @@ The installed app includes a 15-second HID++ probe:
 /Applications/MasterKey.app/Contents/MacOS/MasterKey --probe-hidpp
 ```
 
-It queries button capabilities and prints button transitions without posting keyboard shortcuts or changing device configuration. A lower-level 45-second capability probe is also available as `scripts/inspect-hidpp.swift`:
+It queries button capabilities and prints button transitions without posting keyboard shortcuts or changing device configuration. From a terminal, Bluetooth access belongs to the terminal app; the probe skips Bluetooth unless that access is already allowed, so use the app's Diagnostics for Bluetooth mice. A lower-level 45-second capability probe is also available as `scripts/inspect-hidpp.swift`:
 
 ```sh
 swift scripts/inspect-hidpp.swift
@@ -70,5 +71,7 @@ These probes require access to the relevant HID interfaces. Prefer the installed
 Version 1.4 (build 6) passed all 21 checks and a release build with strict signature verification on Apple Silicon using macOS 27.2 and Swift 6.4.
 
 The development machine's MX Master 4 reported the tested side button as control ID `0x00C3` over a Logitech USB receiver while Options+ remained active. Direct input and Typeless activation were confirmed in actual use. The final menu bar and Dock icons were visually confirmed, and both visibility settings remained off across a restart. The saved mouse and keyboard configuration was preserved during the update.
+
+The unreleased Bluetooth support passed all 23 checks. Over Bluetooth Low Energy, the same MX Master 4 exposed its HID++ collection (usage page `0xFF43`) inside the mouse interface with long reports only, and Options+ diverted button events through Logitech's GATT characteristic rather than HID. MasterKey recorded the side button over Bluetooth and activated Typeless; the receiver path was re-verified afterward.
 
 This is evidence for the tested setup, not a compatibility guarantee for every Logitech device or macOS/Typeless release. Right-side physical modifier behavior has automated mapping coverage; the desktop automation used for UI checks generated generic left-side modifier events. Privacy permissions may need to be re-established after ad hoc-signed updates, so actual dictation must be checked separately from successful compilation or event emission.

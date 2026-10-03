@@ -6,7 +6,7 @@ import BridgeCore
 /// Only GetFeature / GetCount / GetCidInfo are sent. No SetCidReporting or device seizure.
 final class HIDPPMonitor {
     private var manager: IOHIDManager?
-    private var sessions: [UInt64: HIDPPSession] = [:]
+    private var interfaces: [UInt64: HIDPPInterface] = [:]
     private(set) var isOpen = false
     var onButton: ((HIDBinding, Bool) -> Void)?
     var onStatus: ((String) -> Void)?
@@ -34,8 +34,8 @@ final class HIDPPMonitor {
     }
 
     func stop() {
-        sessions.values.forEach { $0.stop() }
-        sessions.removeAll()
+        interfaces.values.forEach { $0.stop() }
+        interfaces.removeAll()
         if let manager {
             IOHIDManagerRegisterDeviceMatchingCallback(manager, nil, nil)
             IOHIDManagerRegisterDeviceRemovalCallback(manager, nil, nil)
@@ -46,7 +46,7 @@ final class HIDPPMonitor {
         isOpen = false
     }
 
-    func rediscover() { sessions.values.forEach { $0.discover() } }
+    func rediscover() { interfaces.values.forEach { $0.session.discover() } }
 
     private func registryID(_ device: IOHIDDevice) -> UInt64 {
         var value: UInt64 = 0
@@ -56,21 +56,71 @@ final class HIDPPMonitor {
 
     private func add(_ device: IOHIDDevice) {
         let id = registryID(device)
-        guard sessions[id] == nil else { return }
-        let session = HIDPPSession(device: device)
-        session.onStatus = { [weak self] in self?.onStatus?($0) }
-        session.onButton = { [weak self] in self?.onButton?($0, $1) }
-        sessions[id] = session
-        session.start()
+        guard interfaces[id] == nil else { return }
+        let interface = HIDPPInterface(device: device)
+        interface.session.onStatus = { [weak self] in self?.onStatus?($0) }
+        interface.session.onButton = { [weak self] in self?.onButton?($0, $1) }
+        interfaces[id] = interface
+        interface.start()
     }
 
     private func remove(_ device: IOHIDDevice) {
-        sessions.removeValue(forKey: registryID(device))?.stop()
+        interfaces.removeValue(forKey: registryID(device))?.stop()
         onDisconnect?()
     }
 }
 
-private final class HIDPPSession {
+/// Moves HID++ reports between one shared vendor HID interface and its session.
+private final class HIDPPInterface {
+    let session: HIDPPSession
+    private let device: IOHIDDevice
+    private let buffer: UnsafeMutablePointer<UInt8>
+    private let bufferSize: Int
+
+    init(device: IOHIDDevice) {
+        self.device = device
+        bufferSize = max(64, min(4096, (IOHIDDeviceGetProperty(device, kIOHIDMaxInputReportSizeKey as CFString) as? NSNumber)?.intValue ?? 64))
+        buffer = .allocate(capacity: bufferSize)
+        buffer.initialize(repeating: 0, count: bufferSize)
+        func number(_ key: String) -> Int { (IOHIDDeviceGetProperty(device, key as CFString) as? NSNumber)?.intValue ?? 0 }
+        func string(_ key: String) -> String { IOHIDDeviceGetProperty(device, key as CFString) as? String ?? "" }
+        let outputs = IOHIDDeviceCopyMatchingElements(device, [kIOHIDElementTypeKey: kIOHIDElementTypeOutput.rawValue] as CFDictionary, 0) as? [IOHIDElement] ?? []
+        session = HIDPPSession(
+            identity: .init(productID: number(kIOHIDProductIDKey), locationID: number(kIOHIDLocationIDKey),
+                            transport: string(kIOHIDTransportKey), product: string(kIOHIDProductKey)),
+            longReports: HIDPPPacket.usesLongReports(outputReportIDs: Set(outputs.map(IOHIDElementGetReportID)))
+        ) { report in
+            report.withUnsafeBufferPointer { IOHIDDeviceSetReport(device, kIOHIDReportTypeOutput, CFIndex(report[0]), $0.baseAddress!, report.count) }
+        }
+    }
+
+    deinit { buffer.deallocate() }
+
+    func start() {
+        IOHIDDeviceRegisterInputReportCallback(device, buffer, bufferSize, { context, result, _, _, _, bytes, length in
+            guard result == kIOReturnSuccess, let context, length > 0 else { return }
+            let interface = Unmanaged<HIDPPInterface>.fromOpaque(context).takeUnretainedValue()
+            interface.session.receive(Array(UnsafeBufferPointer(start: bytes, count: length)))
+        }, Unmanaged.passUnretained(self).toOpaque())
+        session.start()
+    }
+
+    func stop() {
+        session.stop()
+        IOHIDDeviceRegisterInputReportCallback(device, buffer, bufferSize, nil, nil)
+    }
+}
+
+/// Read-only HID++ discovery and diverted-button tracking for one channel, independent of
+/// how reports travel. Reports use HID framing: report ID, device index, feature index,
+/// function and software ID, then parameters.
+final class HIDPPSession {
+    struct Identity {
+        let productID: Int
+        let locationID: Int
+        let transport: String
+        let product: String
+    }
     private struct Slot {
         var feature: UInt8
         var count: Int = 0
@@ -79,9 +129,9 @@ private final class HIDPPSession {
         var state = HIDPPButtonState()
     }
     private struct Request { let feature: UInt8; let function: UInt8; let expires: Date }
-    private let device: IOHIDDevice
-    private let buffer: UnsafeMutablePointer<UInt8>
-    private let bufferSize: Int
+    private let identity: Identity
+    private let longReports: Bool
+    private let send: ([UInt8]) -> IOReturn
     private let softwareID: UInt8 = 0x0E
     private var slots: [UInt8: Slot] = [:]
     private var pending: [UInt8: Request] = [:]
@@ -91,22 +141,14 @@ private final class HIDPPSession {
     var onButton: ((HIDBinding, Bool) -> Void)?
     var onStatus: ((String) -> Void)?
 
-    init(device: IOHIDDevice) {
-        self.device = device
-        bufferSize = max(64, min(4096, (IOHIDDeviceGetProperty(device, kIOHIDMaxInputReportSizeKey as CFString) as? NSNumber)?.intValue ?? 64))
-        buffer = .allocate(capacity: bufferSize)
-        buffer.initialize(repeating: 0, count: bufferSize)
+    init(identity: Identity, longReports: Bool, send: @escaping ([UInt8]) -> IOReturn) {
+        self.identity = identity
+        self.longReports = longReports
+        self.send = send
     }
-
-    deinit { buffer.deallocate() }
 
     func start() {
         active = true
-        IOHIDDeviceRegisterInputReportCallback(device, buffer, bufferSize, { context, result, _, _, _, bytes, length in
-            guard result == kIOReturnSuccess, let context, length > 0 else { return }
-            let session = Unmanaged<HIDPPSession>.fromOpaque(context).takeUnretainedValue()
-            session.receive(Array(UnsafeBufferPointer(start: bytes, count: length)))
-        }, Unmanaged.passUnretained(self).toOpaque())
         onStatus?(L10n.text(.hidppConnecting))
         discover()
         let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in self?.expireRequests() }
@@ -118,25 +160,23 @@ private final class HIDPPSession {
         active = false
         timer?.invalidate()
         timer = nil
-        IOHIDDeviceRegisterInputReportCallback(device, buffer, bufferSize, nil, nil)
         pending.removeAll()
     }
 
     func discover() {
         guard active, Date().timeIntervalSince(lastDiscovery) > 2 else { return }
         lastDiscovery = Date()
-        let transport = string(kIOHIDTransportKey)
-        let indices: [UInt8] = transport == "USB" ? Array(1...6) : [0xFF]
-        for slot in indices where slots[slot] == nil && pending[slot] == nil {
+        for slot in HIDPPPacket.discoverySlots(transport: identity.transport) where slots[slot] == nil && pending[slot] == nil {
             query(slot, feature: 0, function: 0, parameters: [0x1B, 0x04, 0])
         }
     }
 
     private func query(_ slot: UInt8, feature: UInt8, function: UInt8, parameters: [UInt8] = []) {
         guard active else { return }
-        let data: [UInt8] = [0x10, slot, feature, (function << 4) | softwareID] + Array((parameters + [0, 0, 0]).prefix(3))
+        let report = HIDPPPacket.request(slot: slot, feature: feature, function: function, softwareID: softwareID,
+                                         parameters: parameters, long: longReports)
         pending[slot] = Request(feature: feature, function: function, expires: Date().addingTimeInterval(2))
-        let result = data.withUnsafeBufferPointer { IOHIDDeviceSetReport(device, kIOHIDReportTypeOutput, 0x10, $0.baseAddress!, data.count) }
+        let result = send(report)
         if result != kIOReturnSuccess {
             pending.removeValue(forKey: slot)
             onStatus?(L10n.format(.hidppQueryFailed, UInt32(bitPattern: result)))
@@ -154,9 +194,17 @@ private final class HIDPPSession {
         }
     }
 
-    private func receive(_ bytes: [UInt8]) {
+    func receive(_ bytes: [UInt8]) {
         guard active, let packet = HIDPPPacket(bytes) else { return }
         let slotIndex = packet.deviceIndex
+        // An empty receiver slot, or a receiver asked for the direct index, rejects the query.
+        if let rejected = packet.rejectedRequest {
+            if rejected.softwareID == softwareID, let request = pending[slotIndex],
+               request.feature == rejected.feature, request.function == rejected.function {
+                pending.removeValue(forKey: slotIndex)
+            }
+            return
+        }
         if packet.softwareID == softwareID, let request = pending[slotIndex],
            request.feature == packet.featureIndex, request.function == packet.function {
             pending.removeValue(forKey: slotIndex)
@@ -192,13 +240,10 @@ private final class HIDPPSession {
         let edges = slot.state.update(controls)
         slots[slotIndex] = slot
         for edge in edges {
-            let binding = HIDBinding(productID: number(kIOHIDProductIDKey), locationID: number(kIOHIDLocationIDKey),
-                transport: string(kIOHIDTransportKey), product: string(kIOHIDProductKey), usage: UInt32(edge.control),
-                reportID: 0x11, deviceIndex: slotIndex, controlID: edge.control)
+            let binding = HIDBinding(productID: identity.productID, locationID: identity.locationID,
+                transport: identity.transport, product: identity.product, usage: UInt32(edge.control),
+                reportID: UInt32(HIDPPPacket.longReportID), deviceIndex: slotIndex, controlID: edge.control)
             onButton?(binding, edge.down)
         }
     }
-
-    private func number(_ key: String) -> Int { (IOHIDDeviceGetProperty(device, key as CFString) as? NSNumber)?.intValue ?? 0 }
-    private func string(_ key: String) -> String { IOHIDDeviceGetProperty(device, key as CFString) as? String ?? "" }
 }

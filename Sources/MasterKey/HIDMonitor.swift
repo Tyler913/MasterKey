@@ -9,6 +9,8 @@ final class HIDMonitor {
     var onDevices: (([String]) -> Void)?
     var onStatus: ((String) -> Void)?
     var onDisconnect: (() -> Void)?
+    /// Called while a Logitech mouse is connected directly over Bluetooth.
+    var onBluetoothDevice: (() -> Void)?
 
     func start() {
         stop()
@@ -61,12 +63,13 @@ final class HIDMonitor {
 
     private func updateDevices() {
         guard let manager else { return }
-        let devices = IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice> ?? []
-        onDevices?(devices.map { device in
+        let devices = Array(IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice> ?? [])
+        let transports = devices.map { IOHIDDeviceGetProperty($0, kIOHIDTransportKey as CFString) as? String ?? "HID" }
+        onDevices?(zip(devices, transports).map { device, transport in
             let product = IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String ?? "Logitech Mouse"
-            let transport = IOHIDDeviceGetProperty(device, kIOHIDTransportKey as CFString) as? String ?? "HID"
             return "\(product) · \(transport)"
         }.sorted())
+        if transports.contains(where: HIDPPPacket.isBluetooth) { onBluetoothDevice?() }
     }
 
     private func receive(_ value: IOHIDValue) {

@@ -17,6 +17,7 @@
     <key>LSMultipleInstancesProhibited</key><true/>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSPrincipalClass</key><string>NSApplication</string>
+    <key>NSBluetoothAlwaysUsageDescription</key><string>Read button presses from a Logitech mouse connected over Bluetooth. No device settings are changed.</string>
     <key>NSInputMonitoringUsageDescription</key><string>Read your selected mouse button to trigger a voice shortcut. Typed text is never recorded.</string>
 </dict>
 </plist>

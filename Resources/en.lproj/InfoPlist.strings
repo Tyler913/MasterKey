@@ -1,1 +1,2 @@
 "NSInputMonitoringUsageDescription" = "Read your selected mouse button to trigger a voice shortcut. Typed text is never recorded.";
+"NSBluetoothAlwaysUsageDescription" = "Read button presses from a Logitech mouse connected over Bluetooth. No device settings are changed.";

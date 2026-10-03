@@ -3,6 +3,7 @@ import SwiftUI
 import Combine
 import BridgeCore
 import Carbon
+import CoreBluetooth
 
 @main
 enum MasterKeyMain {
@@ -17,11 +18,19 @@ enum MasterKeyMain {
         if CommandLine.arguments.contains("--probe-hidpp") {
             setbuf(stdout, nil)
             let monitor = HIDPPMonitor()
+            let bluetooth = BluetoothHIDPPMonitor()
+            let report: (HIDBinding, Bool) -> Void = { binding, down in print(L10n.format(down ? .pressed : .released, binding.title)) }
             monitor.onStatus = { print($0) }
-            monitor.onButton = { binding, down in print(L10n.format(down ? .pressed : .released, binding.title)) }
+            monitor.onButton = report
+            bluetooth.onStatus = { print($0) }
+            bluetooth.onButton = report
             monitor.start()
+            // From a terminal, Bluetooth access belongs to the terminal app, and macOS stops
+            // a process that requests it without consent. Listen only when already allowed.
+            if CBManager.authorization == .allowedAlways { bluetooth.start() } else { print(L10n.text(.probeBluetoothSkipped)) }
             CFRunLoopRunInMode(.defaultMode, 15, false)
             monitor.stop()
+            bluetooth.stop()
             return
         }
         let app = NSApplication.shared

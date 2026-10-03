@@ -40,6 +40,7 @@ final class BridgeModel: ObservableObject {
 
     private let hid = HIDMonitor()
     private let hidpp = HIDPPMonitor()
+    private let bluetooth = BluetoothHIDPPMonitor()
     private let events = EventMonitor()
     private let emitter = KeyboardEmitter()
     private var latch = TriggerLatch()
@@ -74,6 +75,14 @@ final class BridgeModel: ObservableObject {
         hidpp.onButton = { [weak self] binding, down in self?.handleHID(binding, down: down) }
         hidpp.onStatus = { [weak self] in self?.status = $0; self?.append($0) }
         hidpp.onDisconnect = { [weak self] in self?.releaseAll(); self?.append(L10n.text(.disconnected)) }
+        // Bluetooth access is requested only once a Logitech Bluetooth mouse is connected.
+        hid.onBluetoothDevice = { [weak self] in
+            guard let self, !self.bluetooth.isRunning else { return }
+            self.bluetooth.start()
+        }
+        bluetooth.onButton = { [weak self] binding, down in self?.handleHID(binding, down: down) }
+        bluetooth.onStatus = { [weak self] in self?.status = $0; self?.append($0) }
+        bluetooth.onDisconnect = { [weak self] in self?.releaseAll(); self?.append(L10n.text(.disconnected)) }
         events.onMouse = { [weak self] button, down in self?.handleMouse(button, down: down) }
         events.onRelay = { [weak self] in self?.scheduleRelay() }
         events.onStatus = { [weak self] in self?.status = $0; self?.append($0) }
@@ -123,7 +132,8 @@ final class BridgeModel: ObservableObject {
         #endif
         if configuration.inputMode != .hid { return events.isRunning }
         guard inputMonitoring, let binding = configuration.hidBinding else { return false }
-        return binding.controlID == nil ? hid.isOpen && !devices.isEmpty : hidpp.isOpen
+        if binding.controlID == nil { return hid.isOpen && !devices.isEmpty }
+        return HIDPPPacket.isBluetooth(binding.transport) ? bluetooth.isAvailable : hidpp.isOpen
     }
 
     func reconnect() {
@@ -131,6 +141,7 @@ final class BridgeModel: ObservableObject {
         cancelLearning()
         hid.stop()
         hidpp.stop()
+        bluetooth.stop()
         events.stop()
         learnedHIDAwaitingRelease = nil
         learnedMouseAwaitingRelease = nil
@@ -163,7 +174,10 @@ final class BridgeModel: ObservableObject {
         guard accessibility, configuration.enabled else { append(L10n.text(.needEnabled)); return }
         guard configuration.inputMode != .hid || inputMonitoring else { append(L10n.text(.needInput)); return }
         releaseAll()
-        if configuration.inputMode == .hid { hidpp.rediscover() }
+        if configuration.inputMode == .hid {
+            hidpp.rediscover()
+            bluetooth.rediscover()
+        }
         learning = true
         events.learning = true
         append(L10n.text(.learningStarted))
@@ -243,6 +257,7 @@ final class BridgeModel: ObservableObject {
         permissionTimer?.invalidate()
         hid.stop()
         hidpp.stop()
+        bluetooth.stop()
         events.stop()
         observers.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0) }
     }

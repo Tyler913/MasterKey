@@ -6,7 +6,7 @@ A lightweight native macOS utility that turns a Logitech mouse button into a Typ
 
 ## Features
 
-- Shared Logitech mouse input, including HID++ button reports used by the MX Master 4.
+- Shared Logitech mouse input, including HID++ button reports used by the MX Master 4, through a Logitech receiver or a direct Bluetooth connection.
 - Fn output and combinations with left or right Control, Command, Option, and Shift.
 - Click-to-toggle and hold-to-talk behavior, subject to the selected input mode and Typeless settings.
 - Click a shortcut field and press the physical keys to configure a combination.
@@ -18,10 +18,10 @@ A lightweight native macOS utility that turns a Logitech mouse button into a Typ
 
 - macOS 13 or later.
 - Swift 5.9 or later, provided by Xcode or the Xcode Command Line Tools, to build from source.
-- Accessibility permission to send shortcuts, plus Input Monitoring for direct mouse input.
+- Accessibility permission to send shortcuts, plus Input Monitoring for direct mouse input. A mouse connected directly over Bluetooth also needs Bluetooth access.
 - Typeless configured to use the same shortcut as MasterKey.
 
-The direct Logitech path has been confirmed on an MX Master 4 with a USB receiver while Options+ remains running. Other devices, buttons, transports, and Typeless versions may behave differently. See [Testing](docs/TESTING.md) for coverage and limitations.
+The direct Logitech path has been confirmed on an MX Master 4, both with a Logi Bolt USB receiver and connected directly over Bluetooth, while Options+ remains running. Other devices, buttons, transports, and Typeless versions may behave differently. See [Testing](docs/TESTING.md) for coverage and limitations.
 
 ## Build and install
 
@@ -54,7 +54,9 @@ The scripts use local ad hoc signing, without Developer ID signing or notarizati
 
 Direct mode listens to standard Logitech button reports and the vendor-specific HID++ channel. It opens devices without exclusive access and only sends capability queries (`GetFeature`, `GetCount`, and `GetCidInfo`). It does not install a driver or change Options+ button mappings, diversion, or gesture settings.
 
-The receiver may appear as **USB Receiver**. Re-record the button after changing pairing, receiver, USB port, or transport. Primary and secondary mouse buttons cannot be assigned.
+Over Bluetooth, Options+ exchanges HID++ through Logitech's Bluetooth service rather than the HID interface, so MasterKey also listens there. macOS asks for Bluetooth access the first time a Logitech mouse is connected over Bluetooth; receiver-only setups never ask. If access is denied, allow MasterKey under **System Settings → Privacy & Security → Bluetooth**, then select **Reconnect**.
+
+The receiver may appear as **USB Receiver**. A recorded button belongs to one connection: re-record it after switching between a receiver and Bluetooth, or after changing pairing, receiver, or USB port. Primary and secondary mouse buttons cannot be assigned.
 
 ### Options+ relay
 
@@ -89,7 +91,7 @@ If permissions stop working after an update, remove and re-add `/Applications/Ma
 
 ## Privacy and key release
 
-- No network calls, microphone capture, typed-text logging, or access to Typeless history.
+- No network calls, microphone capture, typed-text logging, or access to Typeless history. Bluetooth access is used only to read button events from a connected Logitech mouse.
 - Preferences stay on the Mac. Diagnostics retain up to 80 recent connection and button events in memory; copying the log is an explicit action.
 - Held shortcuts are released on mouse release, disconnect, pause, configuration changes, listener interruption, sleep, session changes, and normal quit, with a 120-second hold limit.
 - Shortcut output is skipped while physical keyboard modifiers are held. Release them before pressing the mouse button.

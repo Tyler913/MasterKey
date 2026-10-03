@@ -299,6 +299,55 @@ final class BridgeCoreTests {
         XCTAssertEqual(try JSONDecoder().decode(HIDBinding.self, from: JSONEncoder().encode(vendor)), vendor)
         XCTAssertEqual(HIDPPPacket.featureQuery(slot: 3, softwareID: 0x0E), [0x10, 3, 0, 0x0E, 0x1B, 0x04, 0])
     }
+
+    func testBluetoothHIDPPUsesLongReportsAndDirectSlot() throws {
+        // Interfaces that declare only the long report need long requests; receivers declare both.
+        XCTAssertFalse(HIDPPPacket.usesLongReports(outputReportIDs: [0x10, 0x11]))
+        XCTAssertTrue(HIDPPPacket.usesLongReports(outputReportIDs: [0x11]))
+        XCTAssertFalse(HIDPPPacket.usesLongReports(outputReportIDs: []))
+        XCTAssertEqual(HIDPPPacket.discoverySlots(transport: "Bluetooth Low Energy"), [0xFF])
+        XCTAssertEqual(HIDPPPacket.discoverySlots(transport: "USB"), [1, 2, 3, 4, 5, 6, 0xFF])
+        XCTAssertTrue(HIDPPPacket.isBluetooth("Bluetooth Low Energy"))
+        XCTAssertFalse(HIDPPPacket.isBluetooth("USB"))
+        // GATT writes drop the report ID and device index: 18 bytes.
+        let query = HIDPPPacket.featureQuery(slot: 0xFF, softwareID: 0x0E, long: true)
+        XCTAssertEqual(query, [0x11, 0xFF, 0, 0x0E, 0x1B, 0x04] + Array(repeating: 0, count: 14))
+        XCTAssertEqual(try XCTUnwrap(HIDPPPacket.bluetoothValue(fromReport: query)), [0, 0x0E, 0x1B, 0x04] + Array(repeating: 0, count: 14))
+        XCTAssertTrue(HIDPPPacket.bluetoothValue(fromReport: HIDPPPacket.featureQuery(slot: 0xFF, softwareID: 0x0E)) == nil)
+        // Observed from an MX Master 4 over Bluetooth with Options+ running: side button down, then up.
+        let down = try XCTUnwrap(HIDPPPacket.report(fromBluetooth: [0x0D, 0x00, 0x00, 0xC3] + Array(repeating: 0, count: 14)))
+        let up = try XCTUnwrap(HIDPPPacket.report(fromBluetooth: [0x0D, 0x00] + Array(repeating: 0, count: 16)))
+        let packet = try XCTUnwrap(HIDPPPacket(down))
+        XCTAssertEqual(packet.deviceIndex, 0xFF)
+        XCTAssertEqual(packet.pressedControls(feature: 0x0D, allowed: [0xC3]), [0xC3])
+        XCTAssertEqual(try XCTUnwrap(HIDPPPacket(up)).pressedControls(feature: 0x0D, allowed: [0xC3]), [])
+        // Analytics events for the same feature (function 2) and other features are never button presses.
+        let analytics = try XCTUnwrap(HIDPPPacket.report(fromBluetooth: [0x0D, 0x20, 0x00, 0xC3, 0x01] + Array(repeating: 0, count: 13)))
+        XCTAssertTrue(try XCTUnwrap(HIDPPPacket(analytics)).pressedControls(feature: 0x0D, allowed: [0xC3]) == nil)
+        XCTAssertTrue(HIDPPPacket.report(fromBluetooth: [0x0D, 0x00, 0x00, 0xC3]) == nil)
+        // A padded input buffer still yields one 20-byte frame.
+        let padded = try XCTUnwrap(HIDPPPacket(down + Array(repeating: 0, count: 44)))
+        XCTAssertEqual(padded.parameters.count, 16)
+        let receiver = HIDBinding(productID: 0xC548, locationID: 123, transport: "USB", product: "USB Receiver", usage: 0xC3, reportID: 0x11, deviceIndex: 3, controlID: 0xC3)
+        let bluetooth = HIDBinding(productID: 0, locationID: 456, transport: "Bluetooth Low Energy", product: "MX Master 4", usage: 0xC3, reportID: 0x11, deviceIndex: 0xFF, controlID: 0xC3)
+        XCTAssertFalse(receiver.matches(bluetooth))
+        XCTAssertTrue(bluetooth.matches(bluetooth))
+    }
+
+    func testHIDPPErrorRepliesIdentifyTheRejectedRequest() throws {
+        // HID++ 1.0 receiver error for GetFeature sent to slot 0xFF or an empty slot.
+        let receiverError = try XCTUnwrap(HIDPPPacket([0x10, 0xFF, 0x8F, 0x00, 0x0E, 0x01, 0x00])?.rejectedRequest)
+        XCTAssertEqual(receiverError.feature, 0)
+        XCTAssertEqual(receiverError.function, 0)
+        XCTAssertEqual(receiverError.softwareID, 0x0E)
+        // HID++ 2.0 device error for GetCidInfo on feature index 0x0D.
+        let deviceError = try XCTUnwrap(HIDPPPacket([0x11, 0xFF, 0xFF, 0x0D, 0x1E, 0x02] + Array(repeating: 0, count: 14))?.rejectedRequest)
+        XCTAssertEqual(deviceError.feature, 0x0D)
+        XCTAssertEqual(deviceError.function, 1)
+        XCTAssertEqual(deviceError.softwareID, 0x0E)
+        let event = try XCTUnwrap(HIDPPPacket([0x11, 3, 0x0D, 0, 0, 0xC3] + Array(repeating: 0, count: 14)))
+        XCTAssertTrue(event.rejectedRequest == nil)
+    }
 }
 
 @main
@@ -326,7 +375,9 @@ enum BridgeChecks {
             ("HID++ rejects replies, motion, and malformed input", tests.testHIDPPRejectsRepliesMotionWrongFeaturesAndTruncation),
             ("HID++ mouse control allowlist", tests.testHIDPPOnlyAcceptsEnumeratedMouseControls),
             ("HID++ simultaneous buttons and duplicates", tests.testHIDPPStateTracksSimultaneousButtonsAndDuplicates),
-            ("Old settings and receiver slot isolation", tests.testOldSettingsDecodeAndVendorBindingsStayDistinct)
+            ("Old settings and receiver slot isolation", tests.testOldSettingsDecodeAndVendorBindingsStayDistinct),
+            ("Bluetooth HID++ framing and captured MX Master 4 events", tests.testBluetoothHIDPPUsesLongReportsAndDirectSlot),
+            ("HID++ error replies", tests.testHIDPPErrorRepliesIdentifyTheRejectedRequest)
         ]
         for (name, test) in cases { try test(); print("PASS \(name)") }
         print("\(cases.count) checks passed. No keyboard events were posted.")

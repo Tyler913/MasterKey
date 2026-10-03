@@ -39,7 +39,7 @@ public enum TextKey: CaseIterable {
     case checkingPermissions, needAccessibility, needInput, needEnabled, disconnected, listenerResumed
     case learningStarted, learningTimeout, testCountdown, relayCountdown, relaySent, loginFailed, recorded
     case pressed, released, relayReceived, relayConflict, physicalModifierHeld, sentDown, sentUp, safetyRelease
-    case standardConnected, standardFailed, eventFailed, eventConnected, hidppFailed, hidppConnecting, hidppQueryFailed, hidppTimeout, hidppReady
+    case standardConnected, standardFailed, eventFailed, eventConnected, hidppFailed, hidppConnecting, hidppQueryFailed, hidppTimeout, hidppReady, bluetoothDenied, probeBluetoothSkipped
 }
 
 /// Shared by SwiftUI, the menu bar and input diagnostics. No OS language settings are changed.
@@ -164,7 +164,13 @@ public enum L10n {
         .hidppConnecting: .init("HID++ connected; discovering buttons…", "专用通道已连接，正在识别按键…", "專用通道已連線，正在辨識按鍵…"),
         .hidppQueryFailed: .init("HID++ query failed (0x%08X).", "按键查询失败（0x%08X）。", "按鍵查詢失敗（0x%08X）。"),
         .hidppTimeout: .init("HID++ query timed out. Reconnect to retry.", "按键查询超时，请重新连接。", "按鍵查詢逾時，請重新連線。"),
-        .hidppReady: .init("HID++ ready · Device %d · %d buttons", "专用通道就绪 · 设备 %d · %d 个按键", "專用通道就緒 · 裝置 %d · %d 個按鍵")
+        .hidppReady: .init("HID++ ready · Device %d · %d buttons", "专用通道就绪 · 设备 %d · %d 个按键", "專用通道就緒 · 裝置 %d · %d 個按鍵"),
+        .bluetoothDenied: .init("Bluetooth access needed for Bluetooth mice. Allow MasterKey in Privacy & Security → Bluetooth.",
+                                "蓝牙鼠标需要蓝牙权限。请在“隐私与安全性 → 蓝牙”中允许 MasterKey。",
+                                "藍牙滑鼠需要藍牙權限。請在「隱私權與安全性 → 藍牙」中允許 MasterKey。"),
+        .probeBluetoothSkipped: .init("Bluetooth skipped: this terminal has no Bluetooth access. Use Diagnostics in the app for Bluetooth mice.",
+                                      "已跳过蓝牙：此终端没有蓝牙权限。蓝牙鼠标请使用应用内的诊断。",
+                                      "已略過藍牙：此終端機沒有藍牙權限。藍牙滑鼠請使用 App 內的診斷。")
     ]
 
     public static func text(_ key: TextKey, language selected: AppLanguage? = nil) -> String {
