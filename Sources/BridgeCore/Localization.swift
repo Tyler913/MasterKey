@@ -39,7 +39,7 @@ public enum TextKey: CaseIterable {
     case checkingPermissions, needAccessibility, needInput, needEnabled, disconnected, listenerResumed
     case learningStarted, learningTimeout, testCountdown, relayCountdown, relaySent, loginFailed, recorded
     case pressed, released, relayReceived, relayConflict, physicalModifierHeld, sentDown, sentUp, safetyRelease
-    case standardConnected, standardFailed, eventFailed, eventConnected, hidppFailed, hidppConnecting, hidppQueryFailed, hidppTimeout, hidppReady, bluetoothDenied, probeBluetoothSkipped
+    case standardConnected, standardFailed, eventFailed, eventConnected, hidppFailed, hidppConnecting, hidppQueryFailed, hidppTimeout, hidppReady, hidppReadyUnit, bluetoothDenied, probeBluetoothSkipped
 }
 
 /// Shared by SwiftUI, the menu bar and input diagnostics. No OS language settings are changed.
@@ -165,6 +165,7 @@ public enum L10n {
         .hidppQueryFailed: .init("HID++ query failed (0x%08X).", "按键查询失败（0x%08X）。", "按鍵查詢失敗（0x%08X）。"),
         .hidppTimeout: .init("HID++ query timed out. Reconnect to retry.", "按键查询超时，请重新连接。", "按鍵查詢逾時，請重新連線。"),
         .hidppReady: .init("HID++ ready · Device %d · %d buttons", "专用通道就绪 · 设备 %d · %d 个按键", "專用通道就緒 · 裝置 %d · %d 個按鍵"),
+        .hidppReadyUnit: .init("HID++ ready · Device %d · %d buttons · Unit %08X", "专用通道就绪 · 设备 %d · %d 个按键 · 单元 %08X", "專用通道就緒 · 裝置 %d · %d 個按鍵 · 單元 %08X"),
         .bluetoothDenied: .init("Bluetooth access needed for Bluetooth mice. Allow MasterKey in Privacy & Security → Bluetooth.",
                                 "蓝牙鼠标需要蓝牙权限。请在“隐私与安全性 → 蓝牙”中允许 MasterKey。",
                                 "藍牙滑鼠需要藍牙權限。請在「隱私權與安全性 → 藍牙」中允許 MasterKey。"),

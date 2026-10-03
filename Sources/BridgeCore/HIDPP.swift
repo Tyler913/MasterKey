@@ -45,6 +45,14 @@ public struct HIDPPPacket {
         request(slot: slot, feature: 0, function: 0, softwareID: softwareID, parameters: [0x1B, 0x04], long: long)
     }
 
+    /// The unit ID from DeviceInformation (0x0003) GetDeviceInfo, or nil when the device
+    /// reports none.
+    public static func unitID(fromDeviceInfo parameters: [UInt8]) -> UInt32? {
+        guard parameters.count >= 5 else { return nil }
+        let value = parameters[1...4].reduce(UInt32(0)) { $0 << 8 | UInt32($1) }
+        return value == 0 || value == .max ? nil : value
+    }
+
     /// A request frame. Long frames carry the same header and zero-padded parameters.
     public static func request(slot: UInt8, feature: UInt8, function: UInt8, softwareID: UInt8,
                                parameters: [UInt8] = [], long: Bool) -> [UInt8] {

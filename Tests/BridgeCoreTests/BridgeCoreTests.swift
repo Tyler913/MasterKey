@@ -334,6 +334,33 @@ final class BridgeCoreTests {
         XCTAssertTrue(bluetooth.matches(bluetooth))
     }
 
+    func testBindingFollowsTheSameDeviceAcrossConnections() throws {
+        let receiver = HIDBinding(productID: 0xC548, locationID: 123, transport: "USB", product: "USB Receiver", usage: 0xC3, reportID: 0x11, deviceIndex: 3, controlID: 0xC3, unitID: 0x1A2B3C4D)
+        var bluetooth = HIDBinding(productID: 0, locationID: 456, transport: "Bluetooth Low Energy", product: "MX Master 4", usage: 0xC3, reportID: 0x11, deviceIndex: 0xFF, controlID: 0xC3, unitID: 0x1A2B3C4D)
+        XCTAssertTrue(receiver.matches(bluetooth))
+        XCTAssertTrue(bluetooth.matches(receiver))
+        var otherButton = bluetooth
+        otherButton.controlID = 0xC4
+        otherButton.usage = 0xC4
+        XCTAssertFalse(receiver.matches(otherButton))
+        bluetooth.unitID = 0x0BADF00D // Another mouse of the same model.
+        XCTAssertFalse(receiver.matches(bluetooth))
+        // Without a unit ID on both sides, the connection must still match.
+        var saved = receiver
+        saved.unitID = nil
+        bluetooth.unitID = 0x1A2B3C4D
+        XCTAssertFalse(saved.matches(bluetooth))
+        XCTAssertTrue(saved.matches(receiver))
+        // Settings saved before unit IDs decode without one.
+        let old = Data(#"{"productID":50504,"locationID":123,"transport":"USB","product":"USB Receiver","usage":195,"reportID":17,"deviceIndex":3,"controlID":195}"#.utf8)
+        XCTAssertTrue(try JSONDecoder().decode(HIDBinding.self, from: old).unitID == nil)
+        XCTAssertEqual(try JSONDecoder().decode(HIDBinding.self, from: JSONEncoder().encode(receiver)), receiver)
+        // GetDeviceInfo: entity count, then the four-byte unit ID.
+        XCTAssertEqual(HIDPPPacket.unitID(fromDeviceInfo: [0x02, 0x1A, 0x2B, 0x3C, 0x4D, 0x00, 0x0E] + Array(repeating: 0, count: 9)), 0x1A2B3C4D)
+        XCTAssertTrue(HIDPPPacket.unitID(fromDeviceInfo: [0x02, 0, 0, 0, 0] + Array(repeating: 0, count: 11)) == nil)
+        XCTAssertTrue(HIDPPPacket.unitID(fromDeviceInfo: [0x02, 0x1A, 0x2B]) == nil)
+    }
+
     func testHIDPPErrorRepliesIdentifyTheRejectedRequest() throws {
         // HID++ 1.0 receiver error for GetFeature sent to slot 0xFF or an empty slot.
         let receiverError = try XCTUnwrap(HIDPPPacket([0x10, 0xFF, 0x8F, 0x00, 0x0E, 0x01, 0x00])?.rejectedRequest)
@@ -377,7 +404,8 @@ enum BridgeChecks {
             ("HID++ simultaneous buttons and duplicates", tests.testHIDPPStateTracksSimultaneousButtonsAndDuplicates),
             ("Old settings and receiver slot isolation", tests.testOldSettingsDecodeAndVendorBindingsStayDistinct),
             ("Bluetooth HID++ framing and captured MX Master 4 events", tests.testBluetoothHIDPPUsesLongReportsAndDirectSlot),
-            ("HID++ error replies", tests.testHIDPPErrorRepliesIdentifyTheRejectedRequest)
+            ("HID++ error replies", tests.testHIDPPErrorRepliesIdentifyTheRejectedRequest),
+            ("Binding follows the device across receiver and Bluetooth", tests.testBindingFollowsTheSameDeviceAcrossConnections)
         ]
         for (name, test) in cases { try test(); print("PASS \(name)") }
         print("\(cases.count) checks passed. No keyboard events were posted.")

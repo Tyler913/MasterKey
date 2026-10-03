@@ -123,12 +123,19 @@ final class HIDPPSession {
     }
     private struct Slot {
         var feature: UInt8
+        var unitID: UInt32?
+        var unitAttempts = 1
         var count: Int = 0
         var nextIndex: Int = 0
         var mouseControls = Set<UInt16>()
         var state = HIDPPButtonState()
     }
-    private struct Request { let feature: UInt8; let function: UInt8; let expires: Date }
+    /// Discovery runs one request per slot: the button feature, the device's unit ID, then
+    /// each control. The unit ID is optional, so its steps never stop discovery. A missed
+    /// unit ID is retried, because Options+ queries the device at the same time and a
+    /// GetFeature reply does not identify which feature it answers.
+    private enum Step { case buttonFeature, infoFeature, deviceInfo, count, controlInfo }
+    private struct Request { let step: Step; let feature: UInt8; let function: UInt8; let expires: Date }
     private let identity: Identity
     private let longReports: Bool
     private let send: ([UInt8]) -> IOReturn
@@ -138,6 +145,7 @@ final class HIDPPSession {
     private var timer: Timer?
     private var active = false
     private var lastDiscovery = Date.distantPast
+    private var recoveries = 0
     var onButton: ((HIDBinding, Bool) -> Void)?
     var onStatus: ((String) -> Void)?
 
@@ -167,15 +175,16 @@ final class HIDPPSession {
         guard active, Date().timeIntervalSince(lastDiscovery) > 2 else { return }
         lastDiscovery = Date()
         for slot in HIDPPPacket.discoverySlots(transport: identity.transport) where slots[slot] == nil && pending[slot] == nil {
-            query(slot, feature: 0, function: 0, parameters: [0x1B, 0x04, 0])
+            // IRoot.GetFeature(0x1B04, special keys and mouse buttons).
+            query(slot, .buttonFeature, feature: 0, function: 0, parameters: [0x1B, 0x04, 0])
         }
     }
 
-    private func query(_ slot: UInt8, feature: UInt8, function: UInt8, parameters: [UInt8] = []) {
+    private func query(_ slot: UInt8, _ step: Step, feature: UInt8, function: UInt8, parameters: [UInt8] = []) {
         guard active else { return }
         let report = HIDPPPacket.request(slot: slot, feature: feature, function: function, softwareID: softwareID,
                                          parameters: parameters, long: longReports)
-        pending[slot] = Request(feature: feature, function: function, expires: Date().addingTimeInterval(2))
+        pending[slot] = Request(step: step, feature: feature, function: function, expires: Date().addingTimeInterval(2))
         let result = send(report)
         if result != kIOReturnSuccess {
             pending.removeValue(forKey: slot)
@@ -183,13 +192,48 @@ final class HIDPPSession {
         }
     }
 
+    private func queryUnit(_ slot: UInt8) {
+        // IRoot.GetFeature(0x0003, device information).
+        query(slot, .infoFeature, feature: 0, function: 0, parameters: [0x00, 0x03, 0])
+    }
+
+    /// Continues discovery after a unit ID lookup, whether or not it found one.
+    private func finishUnitLookup(_ slot: UInt8) {
+        guard let current = slots[slot] else { return }
+        if current.count == 0 {
+            query(slot, .count, feature: current.feature, function: 0)
+        } else if let unitID = current.unitID {
+            onStatus?(L10n.format(.hidppReadyUnit, Int(slot), current.mouseControls.count, unitID))
+        } else {
+            retryUnit(slot)
+        }
+    }
+
+    private func retryUnit(_ slot: UInt8) {
+        guard let current = slots[slot], current.unitID == nil, current.unitAttempts < 3 else { return }
+        slots[slot]?.unitAttempts += 1
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            guard let self, self.active, self.slots[slot]?.unitID == nil, self.pending[slot] == nil else { return }
+            self.queryUnit(slot)
+        }
+    }
+
     private func expireRequests() {
-        let expired = pending.filter { $0.value.expires < Date() }.map(\.key)
-        for slot in expired {
+        let expired = pending.filter { $0.value.expires < Date() }
+        for (slot, request) in expired {
             pending.removeValue(forKey: slot)
-            if slots[slot] != nil {
+            if request.step == .infoFeature || request.step == .deviceInfo {
+                finishUnitLookup(slot)
+            } else if slots[slot] != nil {
                 slots.removeValue(forKey: slot)
-                onStatus?(L10n.text(.hidppTimeout))
+                // A query lost while a connection settles is retried before asking for Reconnect.
+                if recoveries < 3 {
+                    recoveries += 1
+                    lastDiscovery = .distantPast
+                    discover()
+                } else {
+                    onStatus?(L10n.text(.hidppTimeout))
+                }
             }
         }
     }
@@ -202,22 +246,30 @@ final class HIDPPSession {
             if rejected.softwareID == softwareID, let request = pending[slotIndex],
                request.feature == rejected.feature, request.function == rejected.function {
                 pending.removeValue(forKey: slotIndex)
+                if request.step == .infoFeature || request.step == .deviceInfo { finishUnitLookup(slotIndex) }
             }
             return
         }
         if packet.softwareID == softwareID, let request = pending[slotIndex],
            request.feature == packet.featureIndex, request.function == packet.function {
             pending.removeValue(forKey: slotIndex)
-            if request.feature == 0 {
+            switch request.step {
+            case .buttonFeature:
                 guard let feature = packet.parameters.first, feature != 0 else { return }
                 slots[slotIndex] = Slot(feature: feature)
-                query(slotIndex, feature: feature, function: 0)
-            } else if request.function == 0 {
+                queryUnit(slotIndex)
+            case .infoFeature:
+                guard let feature = packet.parameters.first, feature != 0 else { finishUnitLookup(slotIndex); return }
+                query(slotIndex, .deviceInfo, feature: feature, function: 0)
+            case .deviceInfo:
+                slots[slotIndex]?.unitID = HIDPPPacket.unitID(fromDeviceInfo: packet.parameters)
+                finishUnitLookup(slotIndex)
+            case .count:
                 guard let count = packet.parameters.first, count > 0, count <= 64, var slot = slots[slotIndex] else { return }
                 slot.count = Int(count)
                 slots[slotIndex] = slot
-                query(slotIndex, feature: slot.feature, function: 1, parameters: [0])
-            } else if request.function == 1 {
+                query(slotIndex, .controlInfo, feature: slot.feature, function: 1, parameters: [0])
+            case .controlInfo:
                 guard packet.parameters.count >= 5, var slot = slots[slotIndex] else { return }
                 let control = UInt16(packet.parameters[0]) << 8 | UInt16(packet.parameters[1])
                 let flags = packet.parameters[4]
@@ -227,8 +279,17 @@ final class HIDPPSession {
                 }
                 slot.nextIndex += 1
                 slots[slotIndex] = slot
-                if slot.nextIndex < slot.count { query(slotIndex, feature: slot.feature, function: 1, parameters: [UInt8(slot.nextIndex)]) }
-                else { onStatus?(L10n.format(.hidppReady, Int(slotIndex), slot.mouseControls.count)) }
+                if slot.nextIndex < slot.count {
+                    query(slotIndex, .controlInfo, feature: slot.feature, function: 1, parameters: [UInt8(slot.nextIndex)])
+                    break
+                }
+                recoveries = 0
+                if let unitID = slot.unitID {
+                    onStatus?(L10n.format(.hidppReadyUnit, Int(slotIndex), slot.mouseControls.count, unitID))
+                } else {
+                    onStatus?(L10n.format(.hidppReady, Int(slotIndex), slot.mouseControls.count))
+                    retryUnit(slotIndex)
+                }
             }
             return
         }
@@ -242,7 +303,7 @@ final class HIDPPSession {
         for edge in edges {
             let binding = HIDBinding(productID: identity.productID, locationID: identity.locationID,
                 transport: identity.transport, product: identity.product, usage: UInt32(edge.control),
-                reportID: UInt32(HIDPPPacket.longReportID), deviceIndex: slotIndex, controlID: edge.control)
+                reportID: UInt32(HIDPPPacket.longReportID), deviceIndex: slotIndex, controlID: edge.control, unitID: slot.unitID)
             onButton?(binding, edge.down)
         }
     }

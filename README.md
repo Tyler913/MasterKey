@@ -52,11 +52,11 @@ The scripts use local ad hoc signing, without Developer ID signing or notarizati
 4. Select **Fn / 🌐**, or record a key combination that matches the shortcut in Typeless.
 5. Use **Click** for a complete key press on each mouse click, or **Hold to talk** when the input and Typeless configuration support it. Typeless controls when dictation starts and stops.
 
-Direct mode listens to standard Logitech button reports and the vendor-specific HID++ channel. It opens devices without exclusive access and only sends capability queries (`GetFeature`, `GetCount`, and `GetCidInfo`). It does not install a driver or change Options+ button mappings, diversion, or gesture settings.
+Direct mode listens to standard Logitech button reports and the vendor-specific HID++ channel. It opens devices without exclusive access and only sends read-only queries (`GetFeature`, `GetCount`, `GetCidInfo`, and `GetDeviceInfo`). It does not install a driver or change Options+ button mappings, diversion, or gesture settings.
 
 Over Bluetooth, Options+ exchanges HID++ through Logitech's Bluetooth service rather than the HID interface, so MasterKey also listens there. macOS asks for Bluetooth access the first time a Logitech mouse is connected over Bluetooth; receiver-only setups never ask. If access is denied, allow MasterKey under **System Settings → Privacy & Security → Bluetooth**, then select **Reconnect**.
 
-The receiver may appear as **USB Receiver**. A recorded button belongs to one connection: re-record it after switching between a receiver and Bluetooth, or after changing pairing, receiver, or USB port. Primary and secondary mouse buttons cannot be assigned.
+The receiver may appear as **USB Receiver**. A recorded Logitech button follows the physical mouse: MasterKey reads the device's unit ID, so the same button keeps working when you switch between the receiver and Bluetooth with Easy-Switch, without recording it again. A button recorded by an earlier version picks up the unit ID the next time you press it on the connection where it was recorded. Devices that report no unit ID need re-recording after changing connection, pairing, receiver, or USB port. Primary and secondary mouse buttons cannot be assigned.
 
 ### Options+ relay
 

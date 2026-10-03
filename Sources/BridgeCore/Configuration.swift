@@ -92,7 +92,10 @@ public struct HIDBinding: Codable, Equatable {
     public var reportID: UInt32
     public var deviceIndex: UInt8?
     public var controlID: UInt16?
-    public init(productID: Int, locationID: Int, transport: String, product: String, usage: UInt32, reportID: UInt32, deviceIndex: UInt8? = nil, controlID: UInt16? = nil) {
+    /// HID++ unit ID of the physical device. It is the same through a receiver and over
+    /// Bluetooth, while the product ID, location and device index all change.
+    public var unitID: UInt32?
+    public init(productID: Int, locationID: Int, transport: String, product: String, usage: UInt32, reportID: UInt32, deviceIndex: UInt8? = nil, controlID: UInt16? = nil, unitID: UInt32? = nil) {
         self.productID = productID
         self.locationID = locationID
         self.transport = transport
@@ -101,9 +104,15 @@ public struct HIDBinding: Codable, Equatable {
         self.reportID = reportID
         self.deviceIndex = deviceIndex
         self.controlID = controlID
+        self.unitID = unitID
     }
+    /// The same button on the same physical device matches on any connection. Without a
+    /// unit ID on both sides, the connection must match too.
     public func matches(_ other: HIDBinding) -> Bool {
-        productID == other.productID && locationID == other.locationID && transport == other.transport
+        if let unitID, let otherUnit = other.unitID, controlID != nil {
+            return unitID == otherUnit && controlID == other.controlID
+        }
+        return productID == other.productID && locationID == other.locationID && transport == other.transport
             && usage == other.usage && reportID == other.reportID
             && deviceIndex == other.deviceIndex && controlID == other.controlID
     }

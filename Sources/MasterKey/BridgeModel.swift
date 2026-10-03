@@ -76,9 +76,10 @@ final class BridgeModel: ObservableObject {
         hidpp.onStatus = { [weak self] in self?.status = $0; self?.append($0) }
         hidpp.onDisconnect = { [weak self] in self?.releaseAll(); self?.append(L10n.text(.disconnected)) }
         // Bluetooth access is requested only once a Logitech Bluetooth mouse is connected.
+        // Later arrivals connect at once instead of waiting for the next poll.
         hid.onBluetoothDevice = { [weak self] in
-            guard let self, !self.bluetooth.isRunning else { return }
-            self.bluetooth.start()
+            guard let self else { return }
+            if self.bluetooth.isRunning { self.bluetooth.rediscover() } else { self.bluetooth.start() }
         }
         bluetooth.onButton = { [weak self] binding, down in self?.handleHID(binding, down: down) }
         bluetooth.onStatus = { [weak self] in self?.status = $0; self?.append($0) }
@@ -133,6 +134,8 @@ final class BridgeModel: ObservableObject {
         if configuration.inputMode != .hid { return events.isRunning }
         guard inputMonitoring, let binding = configuration.hidBinding else { return false }
         if binding.controlID == nil { return hid.isOpen && !devices.isEmpty }
+        // A binding with a unit ID follows the device to whichever connection it uses.
+        if binding.unitID != nil { return hidpp.isOpen || bluetooth.isAvailable }
         return HIDPPPacket.isBluetooth(binding.transport) ? bluetooth.isAvailable : hidpp.isOpen
     }
 
@@ -275,7 +278,10 @@ final class BridgeModel: ObservableObject {
             append(L10n.format(.recorded, binding.title))
             return
         }
-        guard !learning, configuration.hidBinding?.matches(binding) == true else { return }
+        guard !learning, let saved = configuration.hidBinding, saved.matches(binding) else { return }
+        // A binding saved without a unit ID learns it on the next press on its own connection,
+        // after which the button also works through the other connection.
+        if down, saved.unitID == nil, let unitID = binding.unitID { configuration.hidBinding?.unitID = unitID }
         handleEdge(down, label: binding.controlID.map { L10n.format(.logitechButton, Int($0)) } ?? L10n.format(.systemButton, Int(binding.usage)))
     }
 

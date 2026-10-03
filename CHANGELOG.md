@@ -7,6 +7,8 @@
 - Support Logitech mice connected directly over Bluetooth. Options+ delivers diverted buttons through Logitech's Bluetooth GATT service, which MasterKey now also listens to. Bluetooth access is requested only when a Logitech Bluetooth mouse is connected.
 - Send long HID++ requests to interfaces that declare only long reports, query the direct device index on USB for cable-connected devices, and ignore HID++ error replies.
 - The HID++ probe skips Bluetooth instead of stopping when its terminal has no Bluetooth access.
+- A recorded Logitech button now follows the physical mouse across the receiver and Bluetooth, using the HID++ unit ID, so switching connections no longer requires recording again. Existing bindings pick up the unit ID on their next press.
+- Retry a missed unit ID lookup and HID++ query timeouts automatically, and connect to a Bluetooth mouse as soon as it reappears.
 
 ## 1.4 — Build 6
 
